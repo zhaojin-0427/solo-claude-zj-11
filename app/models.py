@@ -319,6 +319,9 @@ class ExternalAllocation(BaseModel):
     conversion: ConversionStep
     allocated: dict[CourseId, float]
     allocated_total: float
+    free_elective_credits: float = Field(
+        0.0, description="无具名校内课对应、被自由选修类别容量吸收的学分"
+    )
     leftover_credits: float
     rule_violations: list[RuleId]
 

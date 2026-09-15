@@ -260,3 +260,69 @@ def test_free_elective_absorbs_leftover():
     plan = evaluate_selection(ctx, [req.external_courses[0]])
     assert plan.recognized_credits == 4.0
     assert plan.leftover_elective_credits == 4.0
+
+
+def test_free_elective_per_course_consistency():
+    """F 的 1 学分被自由选修容量吸收时：逐课记录必须显示去向，
+    与汇总（recognized / leftover_elective_credits / 类别吸收）一致，
+    且 allocated_total + free_elective + leftover == converted。"""
+    from app.engine.evaluate import build_context, evaluate_selection
+    program = Program(
+        degree_required_credits=10, min_home_credits=0,
+        categories=[
+            CategorySpec(id="free", name="自由选修",
+                         required_credits=10, free_elective=True),
+        ],
+        courses=[],
+    )
+    courses = [ExternalCourse(id="F", name="伙伴校·研讨", host_credits=1,
+                              term="2026春")]
+    rules = Rules(max_workload_credits=5, max_transferable_credits=10)
+    req = PreevaluationRequest(program=program, external_courses=courses,
+                               rules=rules)
+    ctx = build_context(req)
+    plan = evaluate_selection(ctx, courses)
+
+    assert plan.recognized_credits == 1.0
+    assert plan.leftover_elective_credits == 1.0
+    ext = plan.external_allocations[0]
+    assert ext.external_course_id == "F"
+    assert ext.allocated == {}
+    assert ext.allocated_total == 0.0
+    assert ext.free_elective_credits == 1.0
+    assert ext.leftover_credits == 0.0
+    # 学分守恒：三处分摊之和等于换算学分
+    assert (ext.allocated_total + ext.free_elective_credits
+            + ext.leftover_credits) == ext.converted_credits
+    # 类别汇总与逐课一致
+    free_row = next(c for c in plan.category_remaining
+                    if c.category_id == "free")
+    assert free_row.leftover_absorbed == 1.0
+
+
+def test_min_home_counts_only_home_credits():
+    """已修本校 0 学分、min_home=1，即使交换认定 1 学分，
+    projected_home_credits 仍为 0 且必须报 MIN_HOME（缺口 1）。"""
+    from app.engine.evaluate import build_context, evaluate_selection
+    program = Program(
+        degree_required_credits=10, min_home_credits=1,
+        categories=[CategorySpec(id="major", required_credits=1)],
+        courses=[InternalCourse(id="X1", credits=1, category="major")],
+    )
+    courses = [ExternalCourse(id="F", host_credits=1, term="2026春")]
+    rules = Rules(
+        max_workload_credits=5, max_transferable_credits=10,
+        equivalences=[EquivalenceRule(
+            id="eq-f", external_course_id="F", internal_course_id="X1")],
+    )
+    req = PreevaluationRequest(program=program, external_courses=courses,
+                               rules=rules)
+    ctx = build_context(req)
+    plan = evaluate_selection(ctx, courses)
+    assert plan.recognized_credits == 1.0
+    assert plan.projected_home_credits == 0.0
+    assert plan.projected_remaining_degree_credits == 9.0
+    mh = [v for v in plan.violations if v.code == "MIN_HOME"]
+    assert len(mh) == 1
+    assert mh[0].detail["shortfall"] == 1.0
+    assert mh[0].detail["home_completed_credits"] == 0.0

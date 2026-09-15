@@ -438,16 +438,17 @@ def _collect_violations(ctx: IndexedContext, selected: list[ExternalCourse],
                     "lost_credits": round(converted_total - recognized, 4)},
         ))
 
-    # MIN_HOME：返校后还需校内修读
-    projected_home = ctx.home_completed_credits + recognized
-    home_need = max(0.0, req.program.min_home_credits - projected_home)
+    # MIN_HOME：校内最低修读只按本校实际修读学分，交换认定学分不计入
+    home_completed = ctx.home_completed_credits
+    home_need = max(0.0, req.program.min_home_credits - home_completed)
     if home_need > 1e-9:
         violations.append(Violation(
             code="MIN_HOME", severity="warning",
-            message=(f"预计校内修读 {round(projected_home, 4)} 学分，"
+            message=(f"本校实际修读 {round(home_completed, 4)} 学分，"
                      f"低于校内最低修读 {req.program.min_home_credits} 学分，"
-                     f"返校后至少还需 {round(home_need, 4)} 学分"),
-            detail={"projected_home_credits": round(projected_home, 4),
+                     f"返校后至少还需校内修读 {round(home_need, 4)} 学分"
+                     f"（交换认定学分不计入此项）"),
+            detail={"home_completed_credits": round(home_completed, 4),
                     "min_home_credits": req.program.min_home_credits,
                     "shortfall": round(home_need, 4)},
         ))
@@ -537,6 +538,7 @@ def evaluate_selection(ctx: IndexedContext,
             conversion=ctx.conversions[ec.id],
             allocated=allocated,
             allocated_total=allocated_total,
+            free_elective_credits=direct,
             leftover_credits=leftover,
             rule_violations=sorted(dropped_by_ext.get(ec.id, [])),
         ))
@@ -603,7 +605,8 @@ def evaluate_selection(ctx: IndexedContext,
     uncovered = sorted(need_outcomes - covered)
 
     # ---- 投影毕业要求 ----
-    projected_home = _round(ctx.home_completed_credits + recognized)
+    # 校内最低修读只按本校实际修读学分计算，交换认定学分不计入其中
+    projected_home = _round(ctx.home_completed_credits)
     remaining_degree = _round(max(
         0.0, req.program.degree_required_credits
         - ctx.home_completed_credits - recognized))

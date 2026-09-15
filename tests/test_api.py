@@ -138,12 +138,17 @@ def test_validation_error_payload(client):
 def test_min_home_warning(client):
     c, _ = client
     p = payload()
-    # 完全不选等价抵扣方案也不会有帮助；改为删除等价规则，使 A 无法认定，
-    # 已修仅 4 学分，低于校内最低 90
+    # 已修本校 4 学分；即使 A 认定 4 学分也不计入校内最低修读
     p["program"]["min_home_credits"] = 100
     d = c.post("/api/preevaluations", json=p).json()
-    codes = [v["code"] for v in d["best_plan"]["violations"]]
-    assert "MIN_HOME" in codes
+    best = d["best_plan"]
+    mh = [v for v in best["violations"] if v["code"] == "MIN_HOME"]
+    assert mh
+    assert mh[0]["detail"]["home_completed_credits"] == 4.0
+    assert mh[0]["detail"]["shortfall"] == 96.0
+    # projected_home_credits 只含本校实际修读，不含交换认定
+    assert best["projected_home_credits"] == 4.0
+    assert best["recognized_credits"] >= 4.0
 
 
 def test_lock_exceeding_workload_rejected(client):
